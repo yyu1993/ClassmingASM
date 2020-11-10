@@ -1,54 +1,55 @@
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Hashtable;
 
 public class Method implements Comparable<Method> {
     public String methodName;
     public ArrayList<InsnStmt> insnList;
-    public Hashtable<String, ArrayList<MutationStmt>> mutationDictionary;
+    public Hashtable<String, ArrayList<MutationStmt>> mutationDictionary; // hp -> mutationStmt
     public int mutationCount;
+    public HashSet<String> tpSet;
+    public int variableCount;
 
     public Method(String name) {
-        this.methodName = name;
-        this.insnList = new ArrayList<>();
-        this.mutationCount = 1;
+        methodName = name;
+        insnList = new ArrayList<>();
+        mutationCount = 1;
+        tpSet = new HashSet<>();
+        variableCount = 0;
     }
 
     public void addInsn(InsnStmt is) {
         this.insnList.add(is);
     }
 
-    public void addMutation(String label, int hi, String[] tp) {
-        MutationStmt ms = new MutationStmt(hi, tp, mutationCount);
-        if(mutationDictionary.contains(label)) {
-            mutationDictionary.get(label).add(ms);
+    public void addMutation(MutationStmt ms) {
+        if(mutationDictionary.contains(ms.HP)) {
+            mutationDictionary.get(ms.HP).add(0, ms);
         } else {
             ArrayList<MutationStmt> msList = new ArrayList<>();
             msList.add(ms);
-            mutationDictionary.put(label, new ArrayList<>());
+            mutationDictionary.put(ms.HP, msList);
         }
+        tpSet.addAll(ms.TPS);
         mutationCount++;
     }
 
     @Override
     public int compareTo(Method b) {
-        double pa = (double)this.insnList.size() / (double)this.mutationCount;
-        double pb = (double)b.insnList.size() / (double)b.mutationCount;
-        if (pa > pb) {
-            return 1;
-        } else if (pa < pb) {
-            return -1;
-        } else {
-            return 0;
-        }
+        Double pa = (double)this.insnList.size() / (double)this.mutationCount;
+        Double pb = (double)b.insnList.size() / (double)b.mutationCount;
+        return pa.compareTo(pb);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("\n"+methodName+": ");
-        for (int i=0;i<insnList.size();i++) {
-            sb.append("\n"+insnList.get(i));
+        sb.append("\n");
+        sb.append(methodName);
+        sb.append(": ");
+        for (InsnStmt insn : insnList) {
+            sb.append("\n");
+            sb.append(insn.toString());
         }
         sb.append("\n");
         return sb.toString();

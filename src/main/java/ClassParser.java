@@ -1,8 +1,10 @@
+import org.objectweb.asm.commons.LocalVariablesSorter;
 import org.apache.commons.io.FileUtils;
 import org.objectweb.asm.*;
 
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Hashtable;
 
@@ -18,9 +20,18 @@ public class ClassParser {
     public int methodCount;
     public int mutationCount;
     public Hashtable<String, Method> methodDictionary;
+    public HashSet<String> seedInsnSet;
     public HashSet<String> totalLivecodeSet;
-    public HashSet<String> curLivecodeSet;
+    public ArrayList<String> curLivecodeList;
+    public double prevCoverSeed;
+    public double curCoverSeed;
 
+    public Hashtable<String, Hashtable<String, Label>> methodLabelDictionary;
+
+
+    /**
+     * Used to parse the seed class.
+     */
     private class ParsiveMethodVisitor extends MethodVisitor {
         String methodName;
         InsnStmt curInsn;
@@ -36,6 +47,7 @@ public class ClassParser {
         }
 
         public void record(InsnStmt insn) {
+            seedInsnSet.add(insn.identifier());
             insnCount += 1;
             methodDictionary.get(methodName).addInsn(insn);
         }
@@ -91,7 +103,7 @@ public class ClassParser {
 
         @Override
         public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
-            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+bootstrapMethodArguments, methodName, insnCount, false);
+            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
             record(is);
             super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         }
@@ -152,11 +164,20 @@ public class ClassParser {
             super.visitVarInsn(opcode, var);
         }
 
+        @Override
+        public void visitLocalVariable(String name, String descriptor, String signature, Label start, Label end, int index) {
+            methodDictionary.get(methodName).variableCount++;
+            super.visitLocalVariable(name, descriptor, signature, start, end, index);
+        }
+
         public void visitEnd() {
             methodCount++;
         }
     }
 
+    /**
+     * Used to instrument a class.
+     */
     private class InstrumentalMethodVisitor extends MethodVisitor {
         String methodName;
         int insnCount;
@@ -168,10 +189,12 @@ public class ClassParser {
         }
 
         public void instrument(String insn) {
-            mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
-            mv.visitLdcInsn(insn);
-            mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
-            insnCount += 1;
+            if(seedInsnSet.contains(insn)) {
+                mv.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;");
+                mv.visitLdcInsn(insn);
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false);
+                insnCount += 1;
+            }
         }
 
         @Override
@@ -190,7 +213,7 @@ public class ClassParser {
 
         @Override
         public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
-            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+bootstrapMethodArguments, methodName, insnCount, false);
+            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
             instrument(is.identifier());
             mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         }
@@ -258,7 +281,6 @@ public class ClassParser {
             mv.visitVarInsn(opcode, var);
         }
     }
-
     private class InstrumentalClassVisitor extends ClassVisitor {
         public InstrumentalClassVisitor(ClassVisitor cv) {
             super(Opcodes.ASM9, cv);
@@ -272,6 +294,278 @@ public class ClassParser {
         }
     }
 
+    /**
+     * Used to add label to a class.
+     */
+    private class LabelingMethodVisitor extends MethodVisitor {
+        MutationStmt mutationStmt;
+        String methodName;
+        int insnCount;
+        int mutationCount;
+        Hashtable<String, Label> labelDictionary;
+
+        public LabelingMethodVisitor(String methodName, MutationStmt ms, MethodVisitor mv) {
+            super(Opcodes.ASM9, mv);
+            this.methodName = methodName;
+            insnCount = 0;
+            mutationCount = 0;
+            labelDictionary = new Hashtable<>();
+            mutationStmt = ms;
+        }
+
+        public void instrument(String insn) {
+            if(seedInsnSet.contains(insn)) {
+                insnCount += 1;
+            }
+        }
+
+        public void instrumentLabel(InsnStmt is) {
+            Label l = new Label();
+            mv.visitLabel(l);
+            labelDictionary.put(is.identifier(), l);
+        }
+
+        @Override
+        public void visitIincInsn(int var, int increment) {
+            InsnStmt is = new InsnStmt("IincInsn", var+" "+increment, methodName, insnCount, true);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier()) || mutationStmt.TPS.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitIincInsn(var, increment);
+        }
+
+        @Override
+        public void visitInsn(int opcode) {
+            InsnStmt is = new InsnStmt("Insn", opcode+"", methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitInsn(opcode);
+        }
+
+        @Override
+        public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
+            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
+        }
+
+        @Override
+        public void visitLdcInsn(Object value) {
+            InsnStmt is = new InsnStmt("LdcInsn", value.toString(), methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitLdcInsn(value);
+        }
+
+        @Override
+        public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
+            InsnStmt is = new InsnStmt("MethodInsn", opcode+" "+owner+" "+name+" "+descriptor+" "+isInterface, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
+        }
+
+        @Override
+        public void visitMultiANewArrayInsn(String descriptor, int numDimension) {
+            InsnStmt is = new InsnStmt("MultiANewArrayInsn", descriptor+" "+numDimension, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitMultiANewArrayInsn(descriptor, numDimension);
+        }
+
+        @Override
+        public void visitTypeInsn(int opcode, String type) {
+            InsnStmt is = new InsnStmt("TypeInsn", opcode+" "+type, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitTypeInsn(opcode, type);
+        }
+
+        @Override
+        public void visitVarInsn(int opcode, int var) {
+            InsnStmt is = new InsnStmt("VarInsn", opcode+" "+var, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitVarInsn(opcode, var);
+        }
+
+        @Override
+        public void visitEnd(){
+            methodLabelDictionary.put(methodName, labelDictionary);
+        }
+    }
+    private class LabelingClassVisitor extends ClassVisitor {
+        public MutationStmt mutationStmt;
+        public LabelingClassVisitor(ClassVisitor cv, MutationStmt ms) {
+            super(Opcodes.ASM9, cv);
+            mutationStmt = ms;
+            methodLabelDictionary = new Hashtable<>();
+        }
+
+        @Override
+        public MethodVisitor visitMethod(int access, String name,
+                                         String desc, String signature, String[] exceptions) {
+            MethodVisitor mv = cv.visitMethod(access, name, desc, signature, exceptions);
+            if(methodDictionary.get(name).mutationCount > 1 || mutationStmt.METHOD.equals(name)) {
+                return new ClassParser.LabelingMethodVisitor(name, mutationStmt, mv);
+            } else {
+                return mv;
+            }
+        }
+    }
+
+    /**
+     * Used to add loopcount variable to a class.
+     */
+    private class VariableMethodVisitor extends LocalVariablesSorter {
+        MutationStmt mutationStmt;
+        String methodName;
+        int insnCount;
+        int mutationCount;
+        Hashtable<String, Label> labelDictionary;
+
+        public VariableMethodVisitor(String methodName, MutationStmt ms, MethodVisitor mv) {
+            super(Opcodes.ASM9, 0, "a", mv);
+            this.methodName = methodName;
+            insnCount = 0;
+            mutationCount = 0;
+            labelDictionary = new Hashtable<>();
+            mutationStmt = ms;
+        }
+
+        public void instrument(String insn) {
+            if(seedInsnSet.contains(insn)) {
+                insnCount += 1;
+            }
+        }
+
+        public void instrumentLabel(InsnStmt is) {
+            Label l = new Label();
+            mv.visitLabel(l);
+            labelDictionary.put(is.identifier(), l);
+        }
+
+        @Override
+        public void visitIincInsn(int var, int increment) {
+            InsnStmt is = new InsnStmt("IincInsn", var+" "+increment, methodName, insnCount, true);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier()) || mutationStmt.TPS.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitIincInsn(var, increment);
+        }
+
+        @Override
+        public void visitInsn(int opcode) {
+            InsnStmt is = new InsnStmt("Insn", opcode+"", methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitInsn(opcode);
+        }
+
+        @Override
+        public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
+            InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
+        }
+
+        @Override
+        public void visitLdcInsn(Object value) {
+            InsnStmt is = new InsnStmt("LdcInsn", value.toString(), methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitLdcInsn(value);
+        }
+
+        @Override
+        public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
+            InsnStmt is = new InsnStmt("MethodInsn", opcode+" "+owner+" "+name+" "+descriptor+" "+isInterface, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
+        }
+
+        @Override
+        public void visitMultiANewArrayInsn(String descriptor, int numDimension) {
+            InsnStmt is = new InsnStmt("MultiANewArrayInsn", descriptor+" "+numDimension, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitMultiANewArrayInsn(descriptor, numDimension);
+        }
+
+        @Override
+        public void visitTypeInsn(int opcode, String type) {
+            InsnStmt is = new InsnStmt("TypeInsn", opcode+" "+type, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitTypeInsn(opcode, type);
+        }
+
+        @Override
+        public void visitVarInsn(int opcode, int var) {
+            InsnStmt is = new InsnStmt("VarInsn", opcode+" "+var, methodName, insnCount, false);
+            instrument(is.identifier());
+            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
+                instrumentLabel(is);
+            }
+            mv.visitVarInsn(opcode, var);
+        }
+
+        @Override
+        public void visitEnd(){
+            methodLabelDictionary.put(methodName, labelDictionary);
+        }
+    }
+    private class VariableClassVisitor extends ClassVisitor {
+        public MutationStmt mutationStmt;
+        public VariableClassVisitor(ClassVisitor cv, MutationStmt ms) {
+            super(Opcodes.ASM9, cv);
+            mutationStmt = ms;
+            methodLabelDictionary = new Hashtable<>();
+        }
+
+        @Override
+        public MethodVisitor visitMethod(int access, String name,
+                                         String desc, String signature, String[] exceptions) {
+            MethodVisitor mv = cv.visitMethod(access, name, desc, signature, exceptions);
+            if(methodDictionary.get(name).mutationCount > 1 || mutationStmt.METHOD.equals(name)) {
+                return new ClassParser.LabelingMethodVisitor(name, mutationStmt, mv);
+            } else {
+                return mv;
+            }
+        }
+    }
+
     public ClassParser() {
         mutationCount = 0;
         methodDictionary = new Hashtable<>();
@@ -282,16 +576,60 @@ public class ClassParser {
                 return new ParsiveMethodVisitor(name);
             }
         };
-
+        seedInsnSet = new HashSet<>();
         totalLivecodeSet = new HashSet<>();
-        curLivecodeSet = new HashSet<>();
+        curLivecodeList = new ArrayList<>();
+        prevCoverSeed = 0.0;
+        curCoverSeed = 0.0;
     }
 
+    /**
+     * Method to parse the seed class.
+     *
+     * @param in            the InputStream of a class file
+     * @throws IOException  throws IOException
+     */
     public void parseClass(InputStream in) throws IOException {
         ClassReader cr = new ClassReader(in);
         cr.accept(parsiveCV, 0);
     }
 
+    /**
+     * Method to generate a mutant bytecode.
+     *
+     * @param ms            the mutationStmt to apply
+     * @return              byte[] representing the mutant class
+     * @throws IOException  throws IOException
+     */
+    public byte[] mutateClass(MutationStmt ms) throws IOException {
+        // get seed class
+        InputStream in = new FileInputStream(Config.SEED_DIR+Config.SEED_CLASS+Config.CLASS_EXT);
+
+        // instrument all labels
+        ClassReader cr = new ClassReader(in);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        cr.accept(new LabelingClassVisitor(cw, ms), 0);
+
+        // instrument all loopcount variables
+        cr = new ClassReader(cw.toByteArray());
+        cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        cr.accept(new LabelingClassVisitor(cw, ms), 0);
+
+        // instrument all mutations
+        cr = new ClassReader(cw.toByteArray());
+        cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+        cr.accept(new LabelingClassVisitor(cw, ms), 0);
+
+        return cw.toByteArray();
+    }
+
+    /**
+     * Method to run instrumentation on a class.
+     *
+     * @param in    the InputStream of a class file
+     * @return      byte[] representing the instrumented class
+     * @throws IOException  throws IOException
+     */
     public byte[] instrumentClass(InputStream in) throws IOException {
         ClassReader cr = new ClassReader(in);
         ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
@@ -300,15 +638,21 @@ public class ClassParser {
         return cw.toByteArray();
     }
 
-    public void updateLivecode(String filePath, String className) throws IOException {
+    /**
+     * Method to get the livecode of a class. Uses instrumentClass.
+     *
+     * @param filePath      the file path class file is stored
+     * @param className     the name of the class
+     * @return              ArrayList of live instructions
+     * @throws IOException  throws IOException
+     */
+    public ArrayList<String> getLivecode(String filePath, String className) throws IOException {
         InputStream run_in = new FileInputStream(filePath+className+Config.CLASS_EXT);
         FileUtils.writeByteArrayToFile(new File(Config.RUN_DIR+className+Config.CLASS_EXT), instrumentClass(run_in));
         run_in.close();
 
-        HashSet<String> executedInsn = new HashSet<>();
+        ArrayList<String> executedInsn = new ArrayList<>();
         String runCmd = "java -cp ./run " + className;
-
-        System.out.println(runCmd);
 
         try {
             Process p = Runtime.getRuntime().exec(runCmd);
@@ -338,7 +682,20 @@ public class ClassParser {
             e.printStackTrace();
         }
 
-        totalLivecodeSet.addAll(executedInsn);
-        curLivecodeSet = executedInsn;
+        return executedInsn;
+    }
+
+    public void generateMutant(MutationStmt ms) throws IOException {
+        byte[] mutantBytecode = mutateClass(ms);
+        FileUtils.writeByteArrayToFile(new File(Config.MUTANT_DIR+ms.CLASSNAME+Config.CLASS_EXT), mutantBytecode);
+    }
+
+    public void coverSeed() {
+        double x = seedInsnSet.size();
+        double y = new HashSet<>(curLivecodeList).size();
+
+        prevCoverSeed = curCoverSeed;
+        curCoverSeed = x/y;
+        //return x/y;
     }
 }

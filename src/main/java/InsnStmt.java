@@ -1,7 +1,3 @@
-import java.lang.reflect.Array;
-import java.util.ArrayList;
-import java.util.Comparator;
-
 public class InsnStmt {
     public String insnName;
     public String insnContent;
@@ -17,24 +13,14 @@ public class InsnStmt {
         isDefUse = idu;
     }
     public String identifier() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(Config.INSN_ID);
-        sb.append(methodName+"-");
-        sb.append(insnIdx+"-");
-        sb.append(insnName+"-");
-        sb.append(insnContent);
-        return sb.toString();
+        return Config.INSN_ID+methodName+"-"+insnIdx+"-"+insnIdx+"-"+insnContent;
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("    ");
-        sb.append(insnIdx+" - "+insnName+": ");
-        sb.append(insnContent);
         if(isDefUse){
-            sb.append(" valDefUse");
+            return "    "+insnIdx+" - "+insnName+": "+insnContent+" valDefUse";
         }
-        return sb.toString();
+        return "    "+insnIdx+" - "+insnName+": "+insnContent;
     }
 }
