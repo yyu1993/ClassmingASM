@@ -1,4 +1,4 @@
-###### ClassmingASM
+# ClassmingASM
 
 This project includes a new implementation of the [Classming](https://tingsu.github.io/files/icse19-classming.pdf) 
 deep differential testing tool for JVM.
