@@ -18,6 +18,7 @@ public class InsnStmt {
     }
     public String identifier() {
         StringBuilder sb = new StringBuilder();
+        sb.append(Config.INSN_ID);
         sb.append(methodName+"-");
         sb.append(insnIdx+"-");
         sb.append(insnName+"-");

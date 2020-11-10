@@ -1,7 +1,7 @@
+import org.apache.commons.io.FileUtils;
 import org.objectweb.asm.*;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Hashtable;
@@ -18,7 +18,8 @@ public class ClassParser {
     public int methodCount;
     public int mutationCount;
     public Hashtable<String, Method> methodDictionary;
-    public ArrayList<HashSet<String>> livecodeSetList = new ArrayList<>();
+    public HashSet<String> totalLivecodeSet;
+    public HashSet<String> curLivecodeSet;
 
     private class ParsiveMethodVisitor extends MethodVisitor {
         String methodName;
@@ -35,7 +36,6 @@ public class ClassParser {
         }
 
         public void record(InsnStmt insn) {
-//            System.out.println(insn);
             insnCount += 1;
             methodDictionary.get(methodName).addInsn(insn);
         }
@@ -96,12 +96,12 @@ public class ClassParser {
             super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         }
 
-        @Override
-        public void visitJumpInsn(int opcode, Label label) {
-            InsnStmt is = new InsnStmt("JumpInsn", opcode+label.toString(), methodName, insnCount, false);
-            record(is);
-            super.visitJumpInsn(opcode, label);
-        }
+//        @Override
+//        public void visitJumpInsn(int opcode, Label label) {
+//            InsnStmt is = new InsnStmt("JumpInsn", opcode+label.toString(), methodName, insnCount, false);
+//            record(is);
+//            super.visitJumpInsn(opcode, label);
+//        }
 
         @Override
         public void visitLdcInsn(Object value) {
@@ -110,12 +110,12 @@ public class ClassParser {
             super.visitLdcInsn(value);
         }
 
-        @Override
-        public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
-            InsnStmt is = new InsnStmt("LookupSwitchInsn", dflt.toString()+" "+keys.toString()+" "+labels.toString(), methodName, insnCount, false);
-            record(is);
-            super.visitLookupSwitchInsn(dflt, keys, labels);
-        }
+//        @Override
+//        public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
+//            InsnStmt is = new InsnStmt("LookupSwitchInsn", dflt.toString()+" "+keys.toString()+" "+labels.toString(), methodName, insnCount, false);
+//            record(is);
+//            super.visitLookupSwitchInsn(dflt, keys, labels);
+//        }
 
         @Override
         public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
@@ -131,18 +131,11 @@ public class ClassParser {
             super.visitMultiANewArrayInsn(descriptor, numDimension);
         }
 
-        @Override
-        public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
-            InsnStmt is = new InsnStmt("TableSwitchInsn", min+" "+max+" "+dflt.toString()+" "+labels.toString(), methodName, insnCount, false);
-            record(is);
-            super.visitTableSwitchInsn(min, max, dflt, labels);
-        }
-
 //        @Override
-//        public void visitTryCatchBlock(Label start, Label end, Label handler, String type) {
-//            InsnStmt is = new InsnStmt("TryCatchBlock", start+" "+end+" "+handler+" "+type, methodName, insnCount, false);
+//        public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
+//            InsnStmt is = new InsnStmt("TableSwitchInsn", min+" "+max+" "+dflt.toString()+" "+labels.toString(), methodName, insnCount, false);
 //            record(is);
-//            super.visitTryCatchBlock(start, end, handler, type);
+//            super.visitTableSwitchInsn(min, max, dflt, labels);
 //        }
 
         @Override
@@ -202,12 +195,12 @@ public class ClassParser {
             mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         }
 
-        @Override
-        public void visitJumpInsn(int opcode, Label label) {
-            InsnStmt is = new InsnStmt("JumpInsn", opcode+label.toString(), methodName, insnCount, false);
-            instrument(is.identifier());
-            mv.visitJumpInsn(opcode, label);
-        }
+//        @Override
+//        public void visitJumpInsn(int opcode, Label label) {
+//            InsnStmt is = new InsnStmt("JumpInsn", opcode+label.toString(), methodName, insnCount, false);
+//            instrument(is.identifier());
+//            mv.visitJumpInsn(opcode, label);
+//        }
 
         @Override
         public void visitLdcInsn(Object value) {
@@ -216,12 +209,12 @@ public class ClassParser {
             mv.visitLdcInsn(value);
         }
 
-        @Override
-        public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
-            InsnStmt is = new InsnStmt("LookupSwitchInsn", dflt.toString()+" "+keys.toString()+" "+labels.toString(), methodName, insnCount, false);
-            instrument(is.identifier());
-            mv.visitLookupSwitchInsn(dflt, keys, labels);
-        }
+//        @Override
+//        public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
+//            InsnStmt is = new InsnStmt("LookupSwitchInsn", dflt.toString()+" "+keys.toString()+" "+labels.toString(), methodName, insnCount, false);
+//            instrument(is.identifier());
+//            mv.visitLookupSwitchInsn(dflt, keys, labels);
+//        }
 
         @Override
         public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
@@ -237,12 +230,12 @@ public class ClassParser {
             mv.visitMultiANewArrayInsn(descriptor, numDimension);
         }
 
-        @Override
-        public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
-            InsnStmt is = new InsnStmt("TableSwitchInsn", min+" "+max+" "+dflt.toString()+" "+labels.toString(), methodName, insnCount, false);
-            instrument(is.identifier());
-            mv.visitTableSwitchInsn(min, max, dflt, labels);
-        }
+//        @Override
+//        public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
+//            InsnStmt is = new InsnStmt("TableSwitchInsn", min+" "+max+" "+dflt.toString()+" "+labels.toString(), methodName, insnCount, false);
+//            instrument(is.identifier());
+//            mv.visitTableSwitchInsn(min, max, dflt, labels);
+//        }
 
 //        @Override
 //        public void visitTryCatchBlock(Label start, Label end, Label handler, String type) {
@@ -289,6 +282,9 @@ public class ClassParser {
                 return new ParsiveMethodVisitor(name);
             }
         };
+
+        totalLivecodeSet = new HashSet<>();
+        curLivecodeSet = new HashSet<>();
     }
 
     public void parseClass(InputStream in) throws IOException {
@@ -302,5 +298,47 @@ public class ClassParser {
         cr.accept(new InstrumentalClassVisitor(cw), 0);
 
         return cw.toByteArray();
+    }
+
+    public void updateLivecode(String filePath, String className) throws IOException {
+        InputStream run_in = new FileInputStream(filePath+className+Config.CLASS_EXT);
+        FileUtils.writeByteArrayToFile(new File(Config.RUN_DIR+className+Config.CLASS_EXT), instrumentClass(run_in));
+        run_in.close();
+
+        HashSet<String> executedInsn = new HashSet<>();
+        String runCmd = "java -cp ./run " + className;
+
+        System.out.println(runCmd);
+
+        try {
+            Process p = Runtime.getRuntime().exec(runCmd);
+
+            final InputStream stdout = p.getInputStream();
+            BufferedReader br = new BufferedReader(new InputStreamReader(stdout));
+            String line;
+            try {
+                while ((line = br.readLine()) != null) {
+                    if(line.contains(Config.INSN_ID)){
+                        executedInsn.add(line);
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    br.close();
+                    stdout.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+            p.waitFor();
+            p.destroy();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        totalLivecodeSet.addAll(executedInsn);
+        curLivecodeSet = executedInsn;
     }
 }

@@ -1,21 +1,19 @@
-import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Random;
-import org.apache.commons.io.FileUtils;
 
-import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.Attribute;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
+/**
+ * An implementation of classming using the ASM bytecode manipulation library.
+ *
+ * @author  Yang Yu
+ * @version 0.0.1
+ */
 public class Main {
     public static HashSet ACC;
     public static HashSet REJ;
@@ -98,25 +96,28 @@ public class Main {
 
     public static HashSet<String> getLivecodeSet(String classFile) {
         HashSet<String> livecodes = new HashSet<>();
+
         return livecodes;
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              {
         // parse the seed class file and get method and label information
         ClassParser cp = new ClassParser();
-        InputStream in = Main.class.getResourceAsStream(Config.SEED_FILE);
-        cp.parseClass(in);
-
+        InputStream seed_in = new FileInputStream(Config.SEED_DIR+Config.SEED_CLASS+Config.CLASS_EXT);
+        cp.parseClass(seed_in);
         System.out.println(cp.methodDictionary.values());
+        seed_in.close();
 
         // get livecode set from seed class
-        int mutationCount = 0;
-        ArrayList<HashSet<String>> livecodeSetList = new ArrayList<>();
+        cp.updateLivecode(Config.SEED_DIR, Config.SEED_CLASS);
 
-        InputStream in1 = Main.class.getResourceAsStream(Config.SEED_FILE);
-        byte[] traced = cp.instrumentClass(in1);
-        FileUtils.writeByteArrayToFile(new File(Config.SEED_FILE), traced);
-        System.out.println(traced.length);
+        // instrument the seed class file
+//        InputStream run_in = new FileInputStream(Config.SEED_DIR+Config.SEED_CLASS+Config.CLASS_EXT);
+//        FileUtils.writeByteArrayToFile(new File(Config.RUN_DIR+Config.SEED_CLASS+Config.CLASS_EXT), cp.instrumentClass(run_in));
+//        run_in.close();
+
+        // run the instrumented class with JVM to get live instructions
+
 //        HashSet<String> originalLivecodeSet = getLivecodeSet(Config.SEED_FILE);
 //        livecodeSetList.add(originalLivecodeSet);
 
