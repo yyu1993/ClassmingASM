@@ -9,11 +9,12 @@ public class Config {
     public final static String REJ_DIR = "mutant/rej/";
     public final static String NONLIVE_DIR = "mutant/nonlive/";
 
-    public final static int MAX_ITERATIONS = 100;
-    public final static int M = 5;
+    public final static int MAX_ITERATIONS = 10;
+    public final static int LOOP_COUNT = 5;
     public final static double PROB_LOW = 0.2;
     public final static double PROB_HIGH = 0.8;
     public final static double BETA = 0.08;
+    public final static double EPSILON = 0.05;
 
-    public final static String INSN_ID = "[INSNID] ";
+    public final static String INSN_ID = "[INSNID]";
 }

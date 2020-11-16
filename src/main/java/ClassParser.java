@@ -28,7 +28,6 @@ public class ClassParser {
 
     public Hashtable<String, Hashtable<String, Label>> methodLabelDictionary;
 
-
     /**
      * Used to parse the seed class.
      */
@@ -431,21 +430,79 @@ public class ClassParser {
     }
 
     /**
-     * Used to add loopcount variable to a class.
+     * Used to add loopcount variable to a method.
      */
-    private class VariableMethodVisitor extends LocalVariablesSorter {
+    private class VariableMethodAdapter extends LocalVariablesSorter {
+        MutationStmt mutationStmt;
+        String methodName;
+        int varCount;
+
+        public VariableMethodAdapter(int access, String desc, MethodVisitor mv, String methodName, MutationStmt ms) {
+            super(Opcodes.ASM9, access, desc, mv);
+            this.methodName = methodName;
+            varCount = 0;
+            mutationStmt = ms;
+        }
+
+        @Override
+        public void visitCode() {
+            super.visitCode();
+
+            for (MutationStmt ms : methodDictionary.get(methodName).mutationList) {
+                mv.visitIntInsn(Opcodes.BIPUSH, Config.LOOP_COUNT); // push int value to stack
+                int loopVar = newLocal(Type.INT_TYPE);              // create new local variable
+                mv.visitVarInsn(Opcodes.LSTORE, loopVar);           // store value on stack to this variable
+                ms.loopVar = loopVar;
+                varCount++;
+            }
+
+            if(mutationStmt.REMOVE < 0) {
+                mv.visitIntInsn(Opcodes.BIPUSH, Config.LOOP_COUNT); // push int value to stack
+                int loopVar = newLocal(Type.INT_TYPE);              // create new local variable
+                mv.visitVarInsn(Opcodes.LSTORE, loopVar);           // store value on stack to this variable
+                mutationStmt.loopVar = loopVar;
+                varCount++;
+            }
+        }
+
+        @Override
+        public void visitMaxs(int maxStack, int maxLocals){
+            super.visitMaxs(maxStack + 4*varCount, maxLocals);
+        }
+    }
+    private class VariableClassVisitor extends ClassVisitor {
+        public MutationStmt mutationStmt;
+        public VariableClassVisitor(ClassVisitor cv, MutationStmt ms) {
+            super(Opcodes.ASM9, cv);
+            mutationStmt = ms;
+        }
+
+        @Override
+        public MethodVisitor visitMethod(int access, String name,
+                                         String desc, String signature, String[] exceptions) {
+            MethodVisitor mv = cv.visitMethod(access, name, desc, signature, exceptions);
+            if(methodDictionary.get(name).mutationCount > 1 || mutationStmt.METHOD.equals(name)) {
+                return new ClassParser.VariableMethodAdapter(access, desc, mv, name, mutationStmt);
+            } else {
+                return mv;
+            }
+        }
+    }
+
+    /**
+     * Used to add mutation to a method.
+     */
+    private class MutatingMethodVisitor extends MethodVisitor {
         MutationStmt mutationStmt;
         String methodName;
         int insnCount;
         int mutationCount;
-        Hashtable<String, Label> labelDictionary;
 
-        public VariableMethodVisitor(String methodName, MutationStmt ms, MethodVisitor mv) {
-            super(Opcodes.ASM9, 0, "a", mv);
+        public MutatingMethodVisitor(String methodName, MutationStmt ms, MethodVisitor mv) {
+            super(Opcodes.ASM9, mv);
             this.methodName = methodName;
             insnCount = 0;
             mutationCount = 0;
-            labelDictionary = new Hashtable<>();
             mutationStmt = ms;
         }
 
@@ -455,18 +512,30 @@ public class ClassParser {
             }
         }
 
-        public void instrumentLabel(InsnStmt is) {
-            Label l = new Label();
-            mv.visitLabel(l);
-            labelDictionary.put(is.identifier(), l);
+        public void mutate(String insn) {
+            if(methodDictionary.get(methodName).mutationDictionary.contains(insn)) {
+                for(MutationStmt ms : methodDictionary.get(methodName).mutationDictionary.get(insn)) {
+                    if(ms.ID != mutationStmt.REMOVE) {
+                        for(String tp : ms.TPS) {
+                            if (ms.HI == Opcodes.GOTO) {
+                                mv.visitIincInsn(ms.loopVar, -1);      // decrement loopcount
+                                mv.visitVarInsn(Opcodes.ILOAD, ms.loopVar);     // load loopcount onto stack
+                                Label l1 = new Label();
+                                mv.visitJumpInsn(Opcodes.IFLE, l1);             // if loopcount greater than 0
+                                mv.visitJumpInsn(Opcodes.GOTO, methodLabelDictionary.get(methodName).get(tp));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         @Override
         public void visitIincInsn(int var, int increment) {
             InsnStmt is = new InsnStmt("IincInsn", var+" "+increment, methodName, insnCount, true);
-            instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier()) || mutationStmt.TPS.contains(is.identifier())) {
-                instrumentLabel(is);
+            insnCount++;
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitIincInsn(var, increment);
         }
@@ -475,8 +544,8 @@ public class ClassParser {
         public void visitInsn(int opcode) {
             InsnStmt is = new InsnStmt("Insn", opcode+"", methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitInsn(opcode);
         }
@@ -485,8 +554,8 @@ public class ClassParser {
         public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
             InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
         }
@@ -495,8 +564,8 @@ public class ClassParser {
         public void visitLdcInsn(Object value) {
             InsnStmt is = new InsnStmt("LdcInsn", value.toString(), methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitLdcInsn(value);
         }
@@ -505,8 +574,8 @@ public class ClassParser {
         public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
             InsnStmt is = new InsnStmt("MethodInsn", opcode+" "+owner+" "+name+" "+descriptor+" "+isInterface, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
         }
@@ -515,8 +584,8 @@ public class ClassParser {
         public void visitMultiANewArrayInsn(String descriptor, int numDimension) {
             InsnStmt is = new InsnStmt("MultiANewArrayInsn", descriptor+" "+numDimension, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitMultiANewArrayInsn(descriptor, numDimension);
         }
@@ -525,8 +594,8 @@ public class ClassParser {
         public void visitTypeInsn(int opcode, String type) {
             InsnStmt is = new InsnStmt("TypeInsn", opcode+" "+type, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitTypeInsn(opcode, type);
         }
@@ -535,20 +604,15 @@ public class ClassParser {
         public void visitVarInsn(int opcode, int var) {
             InsnStmt is = new InsnStmt("VarInsn", opcode+" "+var, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).tpSet.contains(is.identifier())) {
-                instrumentLabel(is);
+            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+                mutate(is.identifier());
             }
             mv.visitVarInsn(opcode, var);
         }
-
-        @Override
-        public void visitEnd(){
-            methodLabelDictionary.put(methodName, labelDictionary);
-        }
     }
-    private class VariableClassVisitor extends ClassVisitor {
+    private class MutatingClassVisitor extends ClassVisitor {
         public MutationStmt mutationStmt;
-        public VariableClassVisitor(ClassVisitor cv, MutationStmt ms) {
+        public MutatingClassVisitor(ClassVisitor cv, MutationStmt ms) {
             super(Opcodes.ASM9, cv);
             mutationStmt = ms;
             methodLabelDictionary = new Hashtable<>();
@@ -559,7 +623,7 @@ public class ClassParser {
                                          String desc, String signature, String[] exceptions) {
             MethodVisitor mv = cv.visitMethod(access, name, desc, signature, exceptions);
             if(methodDictionary.get(name).mutationCount > 1 || mutationStmt.METHOD.equals(name)) {
-                return new ClassParser.LabelingMethodVisitor(name, mutationStmt, mv);
+                return new ClassParser.MutatingMethodVisitor(name, mutationStmt, mv);
             } else {
                 return mv;
             }
@@ -610,15 +674,19 @@ public class ClassParser {
         ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
         cr.accept(new LabelingClassVisitor(cw, ms), 0);
 
+        System.out.println(cw.toByteArray().length);
+
         // instrument all loopcount variables
         cr = new ClassReader(cw.toByteArray());
-        cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
-        cr.accept(new LabelingClassVisitor(cw, ms), 0);
+        cw = new ClassWriter(cr, ClassReader.EXPAND_FRAMES);
+        cr.accept(new VariableClassVisitor(cw, ms), ClassReader.EXPAND_FRAMES);
+
+        System.out.println(cw.toByteArray().length);
 
         // instrument all mutations
         cr = new ClassReader(cw.toByteArray());
-        cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
-        cr.accept(new LabelingClassVisitor(cw, ms), 0);
+        cw = new ClassWriter(cr, ClassReader.EXPAND_FRAMES);
+        cr.accept(new MutatingClassVisitor(cw, ms), ClassReader.EXPAND_FRAMES);
 
         return cw.toByteArray();
     }

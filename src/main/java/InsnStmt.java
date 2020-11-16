@@ -13,7 +13,8 @@ public class InsnStmt {
         isDefUse = idu;
     }
     public String identifier() {
-        return Config.INSN_ID+methodName+"-"+insnIdx+"-"+insnIdx+"-"+insnContent;
+        String id = Config.INSN_ID+methodName+"-"+insnIdx+"-"+insnIdx+"-"+insnContent;
+        return id.replace(" ", "_");
     }
 
     @Override

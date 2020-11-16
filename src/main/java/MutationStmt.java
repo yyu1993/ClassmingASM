@@ -9,6 +9,7 @@ public class MutationStmt {
     final public int ID;
     final public String CLASSNAME;
     final public int REMOVE;
+    int loopVar;
 
     public MutationStmt(String method, int hi, String hp, ArrayList<String> tps, int id) {
         METHOD = method;
@@ -28,5 +29,14 @@ public class MutationStmt {
         ID = id;
         CLASSNAME = Config.MUTANT_CLASS+ID;
         REMOVE = remove;
+    }
+
+    @Override
+    public String toString() {
+        String tp = "";
+        for(String t : TPS) {
+            tp = tp + t + " ";
+        }
+        return "[" + Main.getOpcodesStr(HI) + "]" + " from " + HP + " to " + tp + "in " + METHOD;
     }
 }

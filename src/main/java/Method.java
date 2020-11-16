@@ -7,6 +7,7 @@ public class Method implements Comparable<Method> {
     public ArrayList<InsnStmt> insnList;
     public Hashtable<String, ArrayList<MutationStmt>> mutationDictionary; // hp -> mutationStmt
     public int mutationCount;
+    public ArrayList<MutationStmt> mutationList;
     public HashSet<String> tpSet;
     public int variableCount;
 
@@ -16,6 +17,8 @@ public class Method implements Comparable<Method> {
         mutationCount = 1;
         tpSet = new HashSet<>();
         variableCount = 0;
+        mutationList = new ArrayList<>();
+        mutationDictionary = new Hashtable<>();
     }
 
     public void addInsn(InsnStmt is) {
@@ -31,6 +34,7 @@ public class Method implements Comparable<Method> {
             mutationDictionary.put(ms.HP, msList);
         }
         tpSet.addAll(ms.TPS);
+        mutationList.add(ms);
         mutationCount++;
     }
 
