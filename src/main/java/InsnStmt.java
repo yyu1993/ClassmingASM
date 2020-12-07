@@ -13,15 +13,17 @@ public class InsnStmt {
         isDefUse = idu;
     }
     public String identifier() {
-        String id = Config.INSN_ID+methodName+"-"+insnIdx+"-"+insnIdx+"-"+insnContent;
+        String insnType = insnContent.split(" ")[0];
+        String id = Config.INSN_ID+methodName+"-"+insnIdx+"-"+insnType;
         return id.replace(" ", "_");
     }
 
     @Override
     public String toString() {
-        if(isDefUse){
-            return "    "+insnIdx+" - "+insnName+": "+insnContent+" valDefUse";
-        }
-        return "    "+insnIdx+" - "+insnName+": "+insnContent;
+//        if(isDefUse){
+//            return "    "+insnIdx+" - "+insnName+": "+insnContent+" valDefUse";
+//        }
+//        return "    "+insnIdx+" - "+insnName+": "+insnContent;
+        return identifier();
     }
 }

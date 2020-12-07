@@ -26,16 +26,32 @@ public class Method implements Comparable<Method> {
     }
 
     public void addMutation(MutationStmt ms) {
-        if(mutationDictionary.contains(ms.HP)) {
-            mutationDictionary.get(ms.HP).add(0, ms);
+        if(ms.REMOVE >= 0) {
+            for(String hp : mutationDictionary.keySet()) {
+                for(MutationStmt m : mutationDictionary.get(hp)) {
+                    if(m.ID == ms.REMOVE) {
+                        mutationDictionary.get(hp).remove(m);
+                        if(mutationDictionary.get(hp).size() == 0) {
+                            mutationDictionary.remove(hp);
+                        }
+                        mutationCount--;
+                        mutationList.remove(ms);
+                        return;
+                    }
+                }
+            }
         } else {
-            ArrayList<MutationStmt> msList = new ArrayList<>();
-            msList.add(ms);
-            mutationDictionary.put(ms.HP, msList);
+            if (mutationDictionary.containsKey(ms.HP)) {
+                mutationDictionary.get(ms.HP).add(ms);
+            } else {
+                ArrayList<MutationStmt> msList = new ArrayList<>();
+                msList.add(ms);
+                mutationDictionary.put(ms.HP, msList);
+            }
+            tpSet.addAll(ms.TPS);
+            mutationList.add(ms);
+            mutationCount++;
         }
-        tpSet.addAll(ms.TPS);
-        mutationList.add(ms);
-        mutationCount++;
     }
 
     @Override

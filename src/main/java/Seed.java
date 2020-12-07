@@ -6,7 +6,7 @@ public class Seed {
         String r0;
         int x = 20;
         r0 = new String();
-        r0 = null;
+        //r0 = null;
 
         x--;
         if(x > 0) {

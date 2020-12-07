@@ -1,12 +1,10 @@
 import org.objectweb.asm.commons.LocalVariablesSorter;
 import org.apache.commons.io.FileUtils;
 import org.objectweb.asm.*;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Hashtable;
+import java.util.*;
 
 
 /*
@@ -23,8 +21,7 @@ public class ClassParser {
     public HashSet<String> seedInsnSet;
     public HashSet<String> totalLivecodeSet;
     public ArrayList<String> curLivecodeList;
-    public double prevCoverSeed;
-    public double curCoverSeed;
+    public double curCoverSeedVal;
 
     public Hashtable<String, Hashtable<String, Label>> methodLabelDictionary;
 
@@ -451,7 +448,7 @@ public class ClassParser {
             for (MutationStmt ms : methodDictionary.get(methodName).mutationList) {
                 mv.visitIntInsn(Opcodes.BIPUSH, Config.LOOP_COUNT); // push int value to stack
                 int loopVar = newLocal(Type.INT_TYPE);              // create new local variable
-                mv.visitVarInsn(Opcodes.LSTORE, loopVar);           // store value on stack to this variable
+                mv.visitVarInsn(Opcodes.ISTORE, loopVar);           // store value on stack to this variable
                 ms.loopVar = loopVar;
                 varCount++;
             }
@@ -459,7 +456,7 @@ public class ClassParser {
             if(mutationStmt.REMOVE < 0) {
                 mv.visitIntInsn(Opcodes.BIPUSH, Config.LOOP_COUNT); // push int value to stack
                 int loopVar = newLocal(Type.INT_TYPE);              // create new local variable
-                mv.visitVarInsn(Opcodes.LSTORE, loopVar);           // store value on stack to this variable
+                mv.visitVarInsn(Opcodes.ISTORE, loopVar);           // store value on stack to this variable
                 mutationStmt.loopVar = loopVar;
                 varCount++;
             }
@@ -497,6 +494,7 @@ public class ClassParser {
         String methodName;
         int insnCount;
         int mutationCount;
+        Hashtable<String, Label> labelDict;
 
         public MutatingMethodVisitor(String methodName, MutationStmt ms, MethodVisitor mv) {
             super(Opcodes.ASM9, mv);
@@ -504,6 +502,7 @@ public class ClassParser {
             insnCount = 0;
             mutationCount = 0;
             mutationStmt = ms;
+            labelDict = new Hashtable<>();
         }
 
         public void instrument(String insn) {
@@ -512,20 +511,108 @@ public class ClassParser {
             }
         }
 
+        public void instrumentLabel(String insn) {
+            if(methodDictionary.get(methodName).tpSet.contains(insn) || mutationStmt.TPS.contains(insn)) {
+                mv.visitLabel(labelDict.get(insn));
+            }
+        }
+
         public void mutate(String insn) {
-            if(methodDictionary.get(methodName).mutationDictionary.contains(insn)) {
-                for(MutationStmt ms : methodDictionary.get(methodName).mutationDictionary.get(insn)) {
-                    if(ms.ID != mutationStmt.REMOVE) {
-                        for(String tp : ms.TPS) {
-                            if (ms.HI == Opcodes.GOTO) {
-                                mv.visitIincInsn(ms.loopVar, -1);      // decrement loopcount
-                                mv.visitVarInsn(Opcodes.ILOAD, ms.loopVar);     // load loopcount onto stack
-                                Label l1 = new Label();
-                                mv.visitJumpInsn(Opcodes.IFLE, l1);             // if loopcount greater than 0
-                                mv.visitJumpInsn(Opcodes.GOTO, methodLabelDictionary.get(methodName).get(tp));
-                            }
-                        }
+            if (mutationStmt.HP.equals(insn) && mutationStmt.REMOVE < 0) {
+                mv.visitIincInsn(mutationStmt.loopVar, -1);      // decrement loopcount
+                mv.visitVarInsn(Opcodes.ILOAD, mutationStmt.loopVar);     // load loopcount onto stack
+                Label l1 = new Label();
+                mv.visitJumpInsn(Opcodes.IFLE, l1);             // if loopcount greater than 0
+                System.out.println("ms stmt ========" + mutationStmt);
+                if (mutationStmt.HI == Opcodes.GOTO) {
+                    mv.visitJumpInsn(Opcodes.GOTO, mutationStmt.getLabel(mutationStmt.TPS.get(0)));
+                } else if (mutationStmt.HI == Opcodes.ATHROW) {
+                    mv.visitInsn(Opcodes.ATHROW);
+                } else if (mutationStmt.HI == Opcodes.RETURN) {
+                    mv.visitInsn(Opcodes.RETURN);
+                } else if (mutationStmt.HI == Opcodes.LOOKUPSWITCH) {
+                    int[] keys = new int[mutationStmt.TPS.size()];
+                    for (int i = 0; i < keys.length; i++) {
+                        keys[i] = i;
                     }
+                    Label[] labels = new Label[mutationStmt.TPS.size()];
+                    int idx = 0;
+                    for (String tp : mutationStmt.labelDict.keySet()) {
+                        labels[idx] = mutationStmt.getLabel(tp);
+                        idx += 1;
+                    }
+                    mv.visitLookupSwitchInsn(labels[0], keys, labels);
+                } else if (mutationStmt.HI == Opcodes.TABLESWITCH) {
+                    Label[] labels = new Label[mutationStmt.TPS.size()];
+                    int idx = 0;
+                    for (String tp : mutationStmt.labelDict.keySet()) {
+                        labels[idx] = mutationStmt.getLabel(tp);
+                        idx += 1;
+                    }
+                    mv.visitTableSwitchInsn(0, 100, labels[0], labels);
+                }
+                mv.visitLabel(l1);
+            }
+
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(insn)) {
+                for (int ii = methodDictionary.get(methodName).mutationDictionary.get(insn).size() - 1; ii > -1; ii--) {
+                    MutationStmt ms = methodDictionary.get(methodName).mutationDictionary.get(insn).get(ii);
+                    System.out.println("ms stmt ========" + ms);
+                    if (ms.ID != mutationStmt.REMOVE) {
+                        mv.visitIincInsn(ms.loopVar, -1);      // decrement loopcount
+                        mv.visitVarInsn(Opcodes.ILOAD, ms.loopVar);     // load loopcount onto stack
+                        Label l1 = new Label();
+                        mv.visitJumpInsn(Opcodes.IFLE, l1);             // if loopcount greater than 0
+                        if (ms.HI == Opcodes.GOTO) {
+                            mv.visitJumpInsn(Opcodes.GOTO, ms.getLabel(ms.TPS.get(0)));
+                        } else if (ms.HI == Opcodes.ATHROW) {
+                            mv.visitInsn(Opcodes.ATHROW);
+                        } else if (ms.HI == Opcodes.RETURN) {
+                            mv.visitInsn(Opcodes.RETURN);
+                        } else if (ms.HI == Opcodes.LOOKUPSWITCH) {
+                            int[] keys = new int[ms.TPS.size()];
+                            for (int i = 0; i < keys.length; i++) {
+                                keys[i] = i;
+                            }
+                            Label[] labels = new Label[ms.TPS.size()];
+                            int idx = 0;
+                            for (String tp : ms.labelDict.keySet()) {
+                                labels[idx] = ms.getLabel(tp);
+                                idx += 1;
+                            }
+                            mv.visitLookupSwitchInsn(labels[0], keys, labels);
+                        } else if (ms.HI == Opcodes.TABLESWITCH) {
+                            Label[] labels = new Label[ms.TPS.size()];
+                            int idx = 0;
+                            for (String tp : ms.labelDict.keySet()) {
+                                labels[idx] = ms.getLabel(tp);
+                                idx += 1;
+                            }
+                            mv.visitTableSwitchInsn(0, 100, labels[0], labels);
+                        }
+                        mv.visitLabel(l1);
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void visitCode() {
+            super.visitCode();
+
+            for (MutationStmt ms : methodDictionary.get(methodName).mutationList) {
+                for(String tp : ms.TPS) {
+                    Label l = new Label();
+                    ms.addLabel(tp, l);
+                    labelDict.put(tp, l);
+                }
+            }
+
+            if(mutationStmt.REMOVE < 0) {
+                for(String tp : mutationStmt.TPS) {
+                    Label l = new Label();
+                    mutationStmt.addLabel(tp, l);
+                    labelDict.put(tp, l);
                 }
             }
         }
@@ -533,8 +620,9 @@ public class ClassParser {
         @Override
         public void visitIincInsn(int var, int increment) {
             InsnStmt is = new InsnStmt("IincInsn", var+" "+increment, methodName, insnCount, true);
-            insnCount++;
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrument(is.identifier());
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitIincInsn(var, increment);
@@ -544,7 +632,8 @@ public class ClassParser {
         public void visitInsn(int opcode) {
             InsnStmt is = new InsnStmt("Insn", opcode+"", methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitInsn(opcode);
@@ -554,7 +643,8 @@ public class ClassParser {
         public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
             InsnStmt is = new InsnStmt("InvokeDynamicInsn", name+" "+descriptor+" "+bootstrapMethodHandle+" "+ Arrays.toString(bootstrapMethodArguments), methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
@@ -564,7 +654,8 @@ public class ClassParser {
         public void visitLdcInsn(Object value) {
             InsnStmt is = new InsnStmt("LdcInsn", value.toString(), methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitLdcInsn(value);
@@ -574,7 +665,8 @@ public class ClassParser {
         public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
             InsnStmt is = new InsnStmt("MethodInsn", opcode+" "+owner+" "+name+" "+descriptor+" "+isInterface, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
@@ -584,7 +676,8 @@ public class ClassParser {
         public void visitMultiANewArrayInsn(String descriptor, int numDimension) {
             InsnStmt is = new InsnStmt("MultiANewArrayInsn", descriptor+" "+numDimension, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitMultiANewArrayInsn(descriptor, numDimension);
@@ -594,7 +687,8 @@ public class ClassParser {
         public void visitTypeInsn(int opcode, String type) {
             InsnStmt is = new InsnStmt("TypeInsn", opcode+" "+type, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitTypeInsn(opcode, type);
@@ -604,10 +698,16 @@ public class ClassParser {
         public void visitVarInsn(int opcode, int var) {
             InsnStmt is = new InsnStmt("VarInsn", opcode+" "+var, methodName, insnCount, false);
             instrument(is.identifier());
-            if(methodDictionary.get(methodName).mutationDictionary.contains(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
+            instrumentLabel(is.identifier());
+            if(methodDictionary.get(methodName).mutationDictionary.containsKey(is.identifier()) || mutationStmt.HP.equals(is.identifier())) {
                 mutate(is.identifier());
             }
             mv.visitVarInsn(opcode, var);
+        }
+
+        @Override
+        public void visitEnd() {
+            mv.visitEnd();
         }
     }
     private class MutatingClassVisitor extends ClassVisitor {
@@ -643,8 +743,7 @@ public class ClassParser {
         seedInsnSet = new HashSet<>();
         totalLivecodeSet = new HashSet<>();
         curLivecodeList = new ArrayList<>();
-        prevCoverSeed = 0.0;
-        curCoverSeed = 0.0;
+        curCoverSeedVal = 0.0;
     }
 
     /**
@@ -669,23 +768,14 @@ public class ClassParser {
         // get seed class
         InputStream in = new FileInputStream(Config.SEED_DIR+Config.SEED_CLASS+Config.CLASS_EXT);
 
-        // instrument all labels
+        // instrument all loopcount variables
         ClassReader cr = new ClassReader(in);
         ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
-        cr.accept(new LabelingClassVisitor(cw, ms), 0);
-
-        System.out.println(cw.toByteArray().length);
-
-        // instrument all loopcount variables
-        cr = new ClassReader(cw.toByteArray());
-        cw = new ClassWriter(cr, ClassReader.EXPAND_FRAMES);
         cr.accept(new VariableClassVisitor(cw, ms), ClassReader.EXPAND_FRAMES);
-
-        System.out.println(cw.toByteArray().length);
 
         // instrument all mutations
         cr = new ClassReader(cw.toByteArray());
-        cw = new ClassWriter(cr, ClassReader.EXPAND_FRAMES);
+        cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
         cr.accept(new MutatingClassVisitor(cw, ms), ClassReader.EXPAND_FRAMES);
 
         return cw.toByteArray();
@@ -701,7 +791,7 @@ public class ClassParser {
     public byte[] instrumentClass(InputStream in) throws IOException {
         ClassReader cr = new ClassReader(in);
         ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
-        cr.accept(new InstrumentalClassVisitor(cw), 0);
+        cr.accept(new InstrumentalClassVisitor(cw), ClassReader.EXPAND_FRAMES);
 
         return cw.toByteArray();
     }
@@ -714,13 +804,24 @@ public class ClassParser {
      * @return              ArrayList of live instructions
      * @throws IOException  throws IOException
      */
-    public ArrayList<String> getLivecode(String filePath, String className) throws IOException {
+    public ArrayList<String> getLivecode(String filePath, String className) throws IOException{
         InputStream run_in = new FileInputStream(filePath+className+Config.CLASS_EXT);
-        FileUtils.writeByteArrayToFile(new File(Config.RUN_DIR+className+Config.CLASS_EXT), instrumentClass(run_in));
+        FileUtils.writeByteArrayToFile(new File(Config.SEED_CLASS+Config.CLASS_EXT), instrumentClass(run_in));
         run_in.close();
 
         ArrayList<String> executedInsn = new ArrayList<>();
-        String runCmd = "java -cp ./run " + className;
+        String runCmd = "java -cp " + Config.JAR_FILE + " " + Config.SEED_CLASS_MAIN;
+
+        // update jar file
+        String jarCmd = "jar uf " + Config.JAR_FILE + " " + Config.SEED_CLASS+Config.CLASS_EXT;
+
+        try {
+            Process jarP = Runtime.getRuntime().exec(jarCmd);
+            jarP.waitFor();
+            jarP.destroy();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         try {
             Process p = Runtime.getRuntime().exec(runCmd);
@@ -758,12 +859,47 @@ public class ClassParser {
         FileUtils.writeByteArrayToFile(new File(Config.MUTANT_DIR+ms.CLASSNAME+Config.CLASS_EXT), mutantBytecode);
     }
 
-    public void coverSeed() {
+    public double coverSeed(ArrayList<String> livecode) {
         double x = seedInsnSet.size();
-        double y = new HashSet<>(curLivecodeList).size();
+        double y = 0.0;
+        for(String insn : livecode) {
+            if(seedInsnSet.contains(insn)) {
+                y += 1.0;
+            }
+        }
+        return y/x;
+    }
 
-        prevCoverSeed = curCoverSeed;
-        curCoverSeed = x/y;
-        //return x/y;
+    public double accValue(double gCov, double fCov) {
+        return Math.min(1.0, Math.exp(Config.BETA * (fCov - gCov)));
+    }
+
+    public String selectMutant(MutationStmt ms) throws IOException {
+        // get livecode set of ms
+        ArrayList<String> msLivecode = getLivecode(Config.MUTANT_DIR, ms.CLASSNAME);
+//        for (String insn : msLivecode) {
+//            System.out.println(insn);
+//        }
+        // calculate coverage of new mutant
+        double covVal = coverSeed(msLivecode);
+
+        if(covVal > 0.0) {
+            // get a random value from 0.0 and 1.0
+            double randVal = new Random(System.currentTimeMillis()).nextDouble();
+            double accVal = accValue(covVal, curCoverSeedVal);
+
+            if(accVal > randVal) {
+                totalLivecodeSet.addAll(msLivecode);
+                curLivecodeList = msLivecode;
+                curCoverSeedVal = covVal;
+                mutationCount += 1;
+                methodDictionary.get(ms.METHOD).addMutation(ms);
+                return Config.ACC;
+            } else {
+                return Config.REJ;
+            }
+        } else {
+            return Config.NONLIVE;
+        }
     }
 }
