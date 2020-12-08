@@ -5,11 +5,12 @@ import java.util.Hashtable;
 public class Method implements Comparable<Method> {
     public String methodName;
     public ArrayList<InsnStmt> insnList;
-    public Hashtable<String, ArrayList<MutationStmt>> mutationDictionary; // hp -> mutationStmt
+    public Hashtable<Integer, ArrayList<MutationStmt>> mutationDictionary; // hp -> mutationStmt
     public int mutationCount;
     public ArrayList<MutationStmt> mutationList;
     public HashSet<String> tpSet;
     public int variableCount;
+    public int labelCount;
 
     public Method(String name) {
         methodName = name;
@@ -19,6 +20,7 @@ public class Method implements Comparable<Method> {
         variableCount = 0;
         mutationList = new ArrayList<>();
         mutationDictionary = new Hashtable<>();
+        labelCount = 0;
     }
 
     public void addInsn(InsnStmt is) {
@@ -27,7 +29,7 @@ public class Method implements Comparable<Method> {
 
     public void addMutation(MutationStmt ms) {
         if(ms.REMOVE >= 0) {
-            for(String hp : mutationDictionary.keySet()) {
+            for(int hp : mutationDictionary.keySet()) {
                 for(MutationStmt m : mutationDictionary.get(hp)) {
                     if(m.ID == ms.REMOVE) {
                         mutationDictionary.get(hp).remove(m);

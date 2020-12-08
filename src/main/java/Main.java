@@ -42,7 +42,7 @@ public class Main {
      * @return  an int corresponding to the Opcode of the mutator or -1 for remove a previous mutation
      */
     public static int getMutator() {
-        return MUTATORS[new Random(System.currentTimeMillis()).nextInt(MUTATORS.length)];
+        return MUTATORS[new Random().nextInt(MUTATORS.length)];
     }
 
     /**
@@ -88,7 +88,7 @@ public class Main {
      * @param curLivecodeList   current livecode list
      * @return                  a String representing the hooking point insn
      */
-    public static String selectHP(Method method, ArrayList<String> curLivecodeList) {
+    public static int selectHP(Method method, ArrayList<String> curLivecodeList) {
         ArrayList<InsnStmt> methodLivecodeList = new ArrayList<>();
         Hashtable<String, InsnStmt> methodInsnTable = new Hashtable<>();
         for(InsnStmt is : method.insnList) {
@@ -131,7 +131,11 @@ public class Main {
         }
         valSet2.retainAll(valSet22);
 
-        return valSet1.size() >= valSet2.size() ? methodLivecodeList.get(idx1).identifier() : methodLivecodeList.get(idx2).identifier();
+        if(valSet1.size() >= valSet2.size()) {
+            return methodLivecodeList.get(idx1).labelIdx;
+        } else {
+            return methodLivecodeList.get(idx2).labelIdx;
+        }
     }
 
     /**
@@ -196,14 +200,14 @@ public class Main {
         if(method.mutationCount == 1) {
             return null;
         }
-        String[] insns = method.mutationDictionary.keySet().toArray(new String[0]);
+        Integer[] hps = method.mutationDictionary.keySet().toArray(new Integer[0]);
         Random rand = new Random(System.currentTimeMillis());
-        int randInt1 = rand.nextInt(insns.length);
-        if(method.mutationDictionary.get(insns[randInt1]).size() == 1) {
-            return method.mutationDictionary.get(insns[randInt1]).get(0);
+        int randInt1 = rand.nextInt(hps.length);
+        if(method.mutationDictionary.get(hps[randInt1]).size() == 1) {
+            return method.mutationDictionary.get(hps[randInt1]).get(0);
         } else {
-            int randInt2 = rand.nextInt(method.mutationDictionary.get(insns[randInt1]).size());
-            return method.mutationDictionary.get(insns[randInt1]).get(randInt2);
+            int randInt2 = rand.nextInt(method.mutationDictionary.get(hps[randInt1]).size());
+            return method.mutationDictionary.get(hps[randInt1]).get(randInt2);
         }
     }
 
@@ -225,10 +229,15 @@ public class Main {
         cp.totalLivecodeSet.addAll(seedLivecode);
         cp.curLivecodeList = seedLivecode;
 
+        System.out.println("Seed instruction #: " + cp.seedInsnSet.size());
+
+        FileWriter timeWriter = new FileWriter(Config.SEED_CLASS+".time");
+
         int iter = 1;
         while (iter <= Config.MAX_ITERATIONS) {
+            long startTime = System.currentTimeMillis();
             try {
-                System.out.println(String.format("[%s %d] === Starting iteration #%d ===", dtf.format(LocalDateTime.now()), System.currentTimeMillis(), iter));
+                System.out.println(String.format("[%s %d] === Starting iteration #%d ===", dtf.format(LocalDateTime.now()), startTime, iter));
 
                 // STEP 1: select LBC mutator: picks from goto, return, throw, lookupswitch, tableswitch
                 int hi = getMutator();
@@ -256,7 +265,7 @@ public class Main {
                     }
                     ms = new MutationStmt(msToRemove.METHOD, msToRemove.HI, msToRemove.HP, msToRemove.TPS, iter, msToRemove.ID);
                 } else {
-                    String hp = selectHP(methodToMutate, cp.curLivecodeList);
+                    int hp = selectHP(methodToMutate, cp.curLivecodeList);
                     System.out.println(String.format("[%s %d] HP selected: %s", dtf.format(LocalDateTime.now()), System.currentTimeMillis(), hp));
                     ArrayList<String> tps = new ArrayList<>();
                     if (hi == Opcodes.GOTO) {
@@ -285,15 +294,18 @@ public class Main {
                 } else if (res == Config.NONLIVE) {
                     NONLIVE.add(ms.CLASSNAME);
                 }
+
             } catch(Exception e) {
                 e.printStackTrace();
             }
             // end of iteration
+            long endTime = System.currentTimeMillis();
+            timeWriter.write(String.format("%d, %d\n",iter, endTime-startTime));
             iter++;
         }
 
         System.out.println(String.format("[%s %d] === Fuzzing operation finished ===", dtf.format(LocalDateTime.now()), System.currentTimeMillis()));
-
+        timeWriter.close();
         // write result to file
 //        File resultFile = new File(Config.SEED_CLASS+".result");
 //        resultFile.createNewFile();

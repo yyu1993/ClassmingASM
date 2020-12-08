@@ -6,7 +6,7 @@ import java.util.Hashtable;
 public class MutationStmt {
     final public String METHOD;
     final public int HI;
-    final public String HP;
+    final public int HP;
     final public ArrayList<String> TPS;
     final public int ID;
     final public String CLASSNAME;
@@ -14,7 +14,7 @@ public class MutationStmt {
     int loopVar;
     Hashtable<String, Label> labelDict;
 
-    public MutationStmt(String method, int hi, String hp, ArrayList<String> tps, int id) {
+    public MutationStmt(String method, int hi, int hp, ArrayList<String> tps, int id) {
         METHOD = method;
         HI = hi;
         HP = hp;
@@ -25,7 +25,7 @@ public class MutationStmt {
         labelDict = new Hashtable<>();
     }
 
-    public MutationStmt(String method, int hi, String hp, ArrayList<String> tps, int id, int remove) {
+    public MutationStmt(String method, int hi, int hp, ArrayList<String> tps, int id, int remove) {
         METHOD = method;
         HI = hi;
         HP = hp;
