@@ -4,8 +4,11 @@ import org.objectweb.asm.*;
 import org.objectweb.asm.tree.ClassNode;
 
 import java.io.*;
+import java.net.Socket;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+
+import java.lang.instrument.*;
 
 
 /*
@@ -843,6 +846,22 @@ public class ClassParser {
         cr.accept(new InstrumentalClassVisitor(cw), 0);
 
         return cw.toByteArray();
+    }
+
+    public void getLivecodeAgent(String filePath, String className) throws IOException {
+        InputStream run_in = new FileInputStream(filePath+className+Config.CLASS_EXT);
+        FileUtils.writeByteArrayToFile(new File(Config.SEED_CLASS+Config.CLASS_EXT), instrumentClass(run_in));
+        run_in.close();
+
+        Socket socket = new Socket("localhost", Config.SERVER_PORT);
+        OutputStream output = socket.getOutputStream();
+        PrintWriter writer = new PrintWriter(output, true);
+        String msg = "loadClass ";
+        msg += System.getProperty("user.dir") + " ";
+        msg += Config.SEED_CLASS + " ";
+        msg += System.getProperty("user.dir")+"\\"+Config.SEED_CLASS+Config.CLASS_EXT;
+
+        writer.println(msg);
     }
 
     /**
